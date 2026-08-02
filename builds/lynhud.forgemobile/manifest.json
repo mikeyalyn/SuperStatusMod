@@ -1,0 +1,19 @@
+{
+  "spec": 3,
+  "type": "plugin",
+  "id": "lynhud.forgemobile",
+  "version": "0.1.0",
+  "display": {
+    "name": "Forge Mobile",
+    "description": "Fold-responsive local custom statuses, icons, presets, and saved creations.",
+    "authors": [
+      {
+        "name": "Lyn + Codex"
+      }
+    ]
+  },
+  "main": "index.js",
+  "extras": {
+    "bunny": {}
+  }
+}
