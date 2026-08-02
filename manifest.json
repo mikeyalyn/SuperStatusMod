@@ -1,0 +1,14 @@
+{
+  "name": "Forge Mobile",
+  "description": "Fold-responsive local custom statuses, icons, presets, and saved creations.",
+  "authors": [
+    {
+      "name": "Lyn + Codex"
+    }
+  ],
+  "main": "builds/lynhud.forgemobile/index.js",
+  "hash": "forge-mobile-0.1.1",
+  "vendetta": {
+    "icon": "PaintbrushIcon"
+  }
+}
