@@ -1,0 +1,10 @@
+{
+  "$meta": {
+    "name": "Forge Mobile",
+    "description": "Local custom status icons and responsive Forge controls for Revenge on Android."
+  },
+  "lynhud.forgemobile": {
+    "version": "0.1.0",
+    "alwaysFetch": true
+  }
+}
