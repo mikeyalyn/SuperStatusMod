@@ -29,6 +29,11 @@ globalThis.plugin = (() => {
         if (!isSpec3 && typeof unpatch === "function") directUnpatches.push(unpatch);
         return unpatch;
     };
+    const scopedBefore = (...args) => {
+        const unpatch = patcher.before(...args);
+        if (!isSpec3 && typeof unpatch === "function") directUnpatches.push(unpatch);
+        return unpatch;
+    };
     const findByStoreNameLazy = isSpec3
         ? revenge.metro.findByStoreNameLazy
         : legacy.metro.findByStoreName;
@@ -224,15 +229,6 @@ globalThis.plugin = (() => {
         return normalizeStatus(storage.active);
     }
 
-    function ownerIdFromAvatarProps(props) {
-        const userId = props?.user?.id || props?.userId || props?.user_id || props?.profile?.user?.id;
-        if (userId) return String(userId);
-        const source = props?.source;
-        const uri = source?.uri || source?.[0]?.uri || props?.avatarSource?.uri || "";
-        const ownId = currentUser()?.id;
-        return ownId && String(uri).includes(`/avatars/${ownId}/`) ? String(ownId) : null;
-    }
-
     function numericAvatarSize(props) {
         if (Number.isFinite(props?.size)) return Number(props.size);
         const fromName = String(props?.size || "").match(/\d+/)?.[0];
@@ -244,7 +240,93 @@ globalThis.plugin = (() => {
         return 32;
     }
 
+    function sourceContainsIdentity(value, needles, depth = 0, seen = new Set()) {
+        if (value == null || depth > 3) return false;
+        if (typeof value === "string") return needles.some(needle => needle && value.includes(needle));
+        if (typeof value !== "object" || seen.has(value)) return false;
+        seen.add(value);
+        const keys = ["uri", "url", "src", "source", "avatar", "avatarUrl", "avatarURL", "key", "id", "userId"];
+        return keys.some(key => sourceContainsIdentity(value[key], needles, depth + 1, seen));
+    }
+
+    function isOwnAvatar(props) {
+        const user = currentUser();
+        if (!user?.id || !props) return false;
+        const ownId = String(user.id);
+        const directId = props.user?.id || props.userId || props.user_id || props.profile?.user?.id || props.guildMember?.user?.id;
+        if (directId != null) return String(directId) === ownId;
+        const needles = [ownId, user.avatar ? String(user.avatar) : ""].filter(Boolean);
+        return [props.source, props.avatarSource, props.iconSource, props.uri, props.url]
+            .some(source => sourceContainsIdentity(source, needles));
+    }
+
+    function hasNativeStatusProps(props) {
+        return [
+            "status",
+            "statusColor",
+            "showStatus",
+            "statusVisible",
+            "statusBackdropColor",
+            "statusThemeColor",
+            "statusMask"
+        ].some(key => key in (props || {}));
+    }
+
+    function shouldPatchAvatar(props) {
+        if (!storage.enabled || !isOwnAvatar(props)) return false;
+        return hasNativeStatusProps(props) || numericAvatarSize(props) >= 56;
+    }
+
+    function ActiveForgeIcon({ size }) {
+        useStorage();
+        return h(ForgeIcon, { status: statusFromStorage(), size });
+    }
+
+    function wrapOwnAvatar(result, props) {
+        if (!result || result.props?.[pluginElement]) return result;
+        const avatarSize = numericAvatarSize(props);
+        const iconSize = avatarSize >= 64 ? 24 : avatarSize >= 44 ? 15 : 10;
+        return h(View, {
+            [pluginElement]: true,
+            style: { position: "relative", width: avatarSize, height: avatarSize }
+        }, result, h(View, {
+            pointerEvents: "none",
+            style: {
+                position: "absolute",
+                right: avatarSize >= 64 ? -1 : 0,
+                bottom: avatarSize >= 64 ? 0 : -1,
+                width: iconSize,
+                height: iconSize,
+                zIndex: 999
+            }
+        }, h(ActiveForgeIcon, { size: iconSize })));
+    }
+
     function patchOwnAvatars() {
+        const avatarModule = findByPropsLazy("default", "AvatarSizes", "getStatusSize");
+        if (avatarModule?.default) {
+            scopedBefore("default", avatarModule, args => {
+                const props = args?.[0];
+                if (!shouldPatchAvatar(props)) return;
+                const nextProps = { ...props };
+                if (storage.hideNativeBadge) {
+                    nextProps.status = null;
+                    nextProps.statusColor = "transparent";
+                    nextProps.showStatus = false;
+                    nextProps.statusVisible = false;
+                    nextProps.statusMask = null;
+                }
+                return [nextProps, ...args.slice(1)];
+            });
+            scopedAfter("default", avatarModule, (args, result) => {
+                const props = args?.[0];
+                if (!shouldPatchAvatar(props)) return;
+                return wrapOwnAvatar(result, props);
+            });
+            return;
+        }
+
+        // Older Discord builds do not expose the Avatar module above. Keep a JSX fallback for them.
         const jsxRuntime = findByPropsLazy("jsx", "jsxs");
         const callback = (args, result) => {
             if (!storage.enabled || !result || !args?.[1] || args[1][pluginElement]) return;
@@ -253,13 +335,7 @@ globalThis.plugin = (() => {
             const componentName = String(Component?.displayName || Component?.name || "");
             const looksLikeAvatar = /avatar/i.test(componentName) || (props.source && ("status" in props || "showStatus" in props));
             if (!looksLikeAvatar) return;
-
-            const ownId = currentUser()?.id;
-            if (!ownId || ownerIdFromAvatarProps(props) !== String(ownId)) return;
-            if (!("status" in props) && props.showStatus !== true && props.statusVisible !== true) return;
-
-            const avatarSize = numericAvatarSize(props);
-            const iconSize = avatarSize >= 64 ? 24 : avatarSize >= 44 ? 15 : 10;
+            if (!shouldPatchAvatar(props)) return;
             const cleanAvatar = storage.hideNativeBadge
                 ? ReactLib.cloneElement(result, {
                     status: null,
@@ -268,21 +344,7 @@ globalThis.plugin = (() => {
                     statusVisible: false
                 })
                 : result;
-
-            return h(View, {
-                [pluginElement]: true,
-                style: { position: "relative", width: avatarSize, height: avatarSize }
-            }, cleanAvatar, h(View, {
-                pointerEvents: "none",
-                style: {
-                    position: "absolute",
-                    right: avatarSize >= 64 ? -1 : 0,
-                    bottom: avatarSize >= 64 ? 0 : -1,
-                    width: iconSize,
-                    height: iconSize,
-                    zIndex: 999
-                }
-            }, h(ForgeIcon, { status: statusFromStorage(), size: iconSize })));
+            return wrapOwnAvatar(cleanAvatar, props);
         };
 
         scopedAfter("jsx", jsxRuntime, callback);
@@ -505,7 +567,7 @@ globalThis.plugin = (() => {
             initializeStorage();
             patchOwnAvatars();
             patchLocalStatusText();
-            logger.info("Forge Mobile 0.1.1 started");
+            logger.info("Forge Mobile 0.1.2 started");
         },
         stop() {
             logger.info("Forge Mobile stopped");
@@ -518,7 +580,7 @@ globalThis.plugin = (() => {
     return {
         onLoad: lifecycle.start,
         onUnload() {
-            for (const unpatch of directUnpatches.splice(0)) {
+            for (const unpatch of directUnpatches.splice(0).reverse()) {
                 try { unpatch(); } catch { /* Continue cleaning up the other patches. */ }
             }
             lifecycle.stop();
