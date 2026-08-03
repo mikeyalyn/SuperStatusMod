@@ -1,7 +1,12 @@
-var plugin = (() => {
+globalThis.plugin = (() => {
     "use strict";
 
-    const h = React.createElement;
+    const isSpec3 = typeof definePlugin === "function";
+    const revenge = typeof bunny !== "undefined" ? bunny : globalThis.bunny;
+    const legacy = typeof vendetta !== "undefined" ? vendetta : null;
+    const ReactLib = legacy?.metro?.common?.React || revenge?.metro?.common?.React || globalThis.React;
+    const ReactNativeLib = legacy?.metro?.common?.ReactNative || revenge?.metro?.common?.ReactNative || globalThis.ReactNative;
+    const h = ReactLib.createElement;
     const {
         Image,
         Pressable,
@@ -11,15 +16,31 @@ var plugin = (() => {
         TextInput,
         View,
         useWindowDimensions
-    } = ReactNative;
+    } = ReactNativeLib;
 
-    const storage = bunny.plugin.createStorage();
-    const useObservable = bunny.api.storage.useObservable;
-    const patcher = bunny.api.patcher;
-    const findByStoreNameLazy = bunny.metro.findByStoreNameLazy;
-    const findByPropsLazy = bunny.metro.findByPropsLazy;
-    const findAssetId = bunny.api.assets.findAssetId;
-    const showToast = bunny.ui.toasts.showToast;
+    const storage = isSpec3 ? revenge.plugin.createStorage() : legacy.plugin.storage;
+    const useStorage = isSpec3
+        ? () => revenge.api.storage.useObservable([storage])
+        : () => legacy.storage.useProxy(storage);
+    const patcher = isSpec3 ? revenge.api.patcher : legacy.patcher;
+    const directUnpatches = [];
+    const scopedAfter = (...args) => {
+        const unpatch = patcher.after(...args);
+        if (!isSpec3 && typeof unpatch === "function") directUnpatches.push(unpatch);
+        return unpatch;
+    };
+    const findByStoreNameLazy = isSpec3
+        ? revenge.metro.findByStoreNameLazy
+        : legacy.metro.findByStoreName;
+    const findByPropsLazy = isSpec3
+        ? revenge.metro.findByPropsLazy
+        : legacy.metro.findByProps;
+    const findAssetId = isSpec3
+        ? revenge.api.assets.findAssetId
+        : legacy.ui.assets.getAssetIDByName;
+    const showToast = isSpec3 ? revenge.ui.toasts.showToast : legacy.ui.toasts.showToast;
+    const clipboard = legacy?.metro?.common?.clipboard || revenge?.metro?.common?.clipboard;
+    const logger = isSpec3 ? revenge.plugin.logger : legacy.logger;
     const UserStore = findByStoreNameLazy("UserStore");
 
     const ICONS = Object.freeze([
@@ -217,7 +238,7 @@ var plugin = (() => {
         const fromName = String(props?.size || "").match(/\d+/)?.[0];
         if (fromName) return Number(fromName);
         try {
-            const flat = ReactNative.StyleSheet.flatten(props?.style) || {};
+            const flat = ReactNativeLib.StyleSheet.flatten(props?.style) || {};
             if (Number.isFinite(flat.width)) return Number(flat.width);
         } catch { /* Use compact fallback. */ }
         return 32;
@@ -240,7 +261,7 @@ var plugin = (() => {
             const avatarSize = numericAvatarSize(props);
             const iconSize = avatarSize >= 64 ? 24 : avatarSize >= 44 ? 15 : 10;
             const cleanAvatar = storage.hideNativeBadge
-                ? React.cloneElement(result, {
+                ? ReactLib.cloneElement(result, {
                     status: null,
                     statusColor: "transparent",
                     showStatus: false,
@@ -264,13 +285,13 @@ var plugin = (() => {
             }, h(ForgeIcon, { status: statusFromStorage(), size: iconSize })));
         };
 
-        patcher.after("jsx", jsxRuntime, callback);
-        patcher.after("jsxs", jsxRuntime, callback);
+        scopedAfter("jsx", jsxRuntime, callback);
+        scopedAfter("jsxs", jsxRuntime, callback);
     }
 
     function patchLocalStatusText() {
         const PresenceStore = findByStoreNameLazy("PresenceStore");
-        patcher.after("getActivities", PresenceStore, (args, activities) => {
+        scopedAfter("getActivities", PresenceStore, (args, activities) => {
             if (!storage.enabled || !storage.replaceLocalStatusText || !Array.isArray(activities)) return;
             const ownId = currentUser()?.id;
             const requestedUserId = args?.[0]?.id || args?.[0];
@@ -344,7 +365,7 @@ var plugin = (() => {
     }
 
     function ForgeSettings() {
-        useObservable([storage]);
+        useStorage();
         const { width } = useWindowDimensions();
         const wide = width >= 600;
         const draft = normalizeStatus(storage.draft);
@@ -360,7 +381,7 @@ var plugin = (() => {
         const exportData = () => {
             const text = JSON.stringify({ version: 1, active, saved }, null, 2);
             storage.transferText = text;
-            try { bunny.metro.common.clipboard.setString(text); } catch { /* Text remains in the transfer box. */ }
+            try { clipboard.setString(text); } catch { /* Text remains in the transfer box. */ }
             toast("Forge backup copied");
         };
         const importData = () => {
@@ -479,16 +500,29 @@ var plugin = (() => {
         );
     }
 
-    return definePlugin({
+    const lifecycle = {
         start() {
             initializeStorage();
             patchOwnAvatars();
             patchLocalStatusText();
-            bunny.plugin.logger.info("Forge Mobile 0.1.0 started");
+            logger.info("Forge Mobile 0.1.1 started");
         },
         stop() {
-            bunny.plugin.logger.info("Forge Mobile stopped; Revenge will dispose its patches");
+            logger.info("Forge Mobile stopped");
         },
         SettingsComponent: ForgeSettings
-    });
+    };
+
+    if (isSpec3) return definePlugin(lifecycle);
+
+    return {
+        onLoad: lifecycle.start,
+        onUnload() {
+            for (const unpatch of directUnpatches.splice(0)) {
+                try { unpatch(); } catch { /* Continue cleaning up the other patches. */ }
+            }
+            lifecycle.stop();
+        },
+        settings: ForgeSettings
+    };
 })();
