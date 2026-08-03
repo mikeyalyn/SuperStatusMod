@@ -1,6 +1,6 @@
 # Forge Mobile for Revenge
 
-Forge Mobile is an experimental Android port of the Forge custom-status userscript. Version 0.1.1 supports Revenge's normal direct plugin installer as well as its newer spec-3 repository format. The settings adapt to narrow cover screens and unfolded/tablet layouts.
+Forge Mobile is an experimental Android port of the Forge custom-status userscript. Version 0.1.2 supports Revenge's normal direct plugin installer as well as its newer spec-3 repository format. The settings adapt to narrow cover screens and unfolded/tablet layouts.
 
 ## What it includes
 
@@ -49,6 +49,14 @@ If a future Revenge build exposes **Add Repository** inside its plugin browser, 
 `https://raw.githubusercontent.com/mikeyalyn/SuperStatusMod/main/repo.json`
 
 Do not use that URL in the normal **Install a plugin** box.
+
+## Update an existing installation
+
+1. Upload the new package files to GitHub, replacing the old copies.
+2. Open Discord Settings → Revenge → Plugins and tap **Forge Mobile**.
+3. Tap **Refetch**, then fully close and reopen Discord.
+
+Version 0.1.2 directly patches Discord's current mobile Avatar component so selected Forge icons appear on the profile badge and update reactively.
 
 ## Troubleshooting
 
