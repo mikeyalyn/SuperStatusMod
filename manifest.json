@@ -7,7 +7,7 @@
     }
   ],
   "main": "builds/lynhud.forgemobile/index.js",
-  "hash": "forge-mobile-0.1.1",
+  "hash": "forge-mobile-0.1.2",
   "vendetta": {
     "icon": "PaintbrushIcon"
   }
